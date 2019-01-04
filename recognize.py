@@ -10,6 +10,7 @@ import pyaudio
 from six.moves import queue
 import time
 import threading
+import tkinter
 
 # Audio recording parameters
 RATE = 16000
@@ -98,97 +99,157 @@ class RequestPackage:
 
             yield b''.join(chunk)
 
-def present(responses):
-    """Iterates through server responses and prints them.
-
-    The responses passed is a generator that will block until a response
-    is provided by the server.
-
-    Each response may contain multiple results, and each result may contain
-    multiple alternatives; for details, see https://goo.gl/tjCPAU.  Here we
-    print only the transcription for the top alternative of the top result.
-
-    In this case, responses are provided for interim results as well. If the
-    response is an interim one, print a line feed at the end of it, to allow
-    the next result to overwrite it, until the response is a final one. For the
-    final one, print a newline to preserve the finalized transcription.
-    """
-    num_chars_printed = 0
-    print("responses:")
-    for response in responses:
-        if not response.results:
-            continue
-
-        print("results:")
-        for result in response.results: 
-            print(result.is_final)
-            if not result.alternatives:
-                continue;
-            for transcript in result.alternatives:
-                print(transcript);
-            print("---")
 
 
-        # The `results` list is consecutive. For streaming, we only care about
-        # the first result being considered, since once it's `is_final`, it
-        # moves on to considering the next utterance.
-        #result = response.results[0]
-        #if not result.alternatives:
-        #    continue
+class GoogleCloudTranscriptionService:
+    def __init__(self, language_code, rawStream, model):
+        self._client = speech.SpeechClient()
+        
+        config = types.RecognitionConfig(
+            encoding=enums.RecognitionConfig.AudioEncoding.LINEAR16,
+            sample_rate_hertz=RATE,
+            language_code=language_code,
+            enable_automatic_punctuation=True)
+        self._streaming_config = types.StreamingRecognitionConfig(
+            config=config,
+            interim_results=True)
+        self._inputStream = rawStream
 
-        # Display the transcription of the top alternative.
-        #transcript = result.alternatives[0].transcript
+        self.model = model
+        self._currentTranscriptKey = None
 
-        # Display interim results, but with a carriage return at the end of the
-        # line, so subsequent lines will overwrite them.
-        #
-        # If the previous result was longer than this one, we need to print
-        # some extra spaces to overwrite the previous result
-        #overwrite_chars = ' ' * (num_chars_printed - len(transcript))
+    def updateTranscript(self, responses):
+        """Iterates through server responses and adds them to the model
 
-        #if not result.is_final:
-        #    sys.stdout.write(transcript + overwrite_chars + '\r')
-        #    sys.stdout.flush()
+        The responses passed is a generator that will block until a response
+        is provided by the server.
+    
+        Each response may contain multiple results, and each result may contain
+        multiple alternatives; for details, see https://goo.gl/tjCPAU. 
+    
+        In this case we add all results to the model. If there are multiple
+        results their confidence level will vary. The presentation can use
+        this for providing visual clues. For each result only the first 
+        alternative is taken into account. A final result will result in
+        a new transcript line in the model.
+        """
+        for response in responses:
+            if not response.results:
+                continue
+    
+            capture = None
 
-#            num_chars_printed = len(transcript)
+            print('capture:')
+            for result in response.results: 
+                if not result.alternatives:
+                    continue
 
-#        else:
- #           print(transcript + overwrite_chars)
+                print('result:' + result.alternatives[0].transcript + ' ' + str(result.is_final) + '\n')
 
-#            num_chars_printed = 0
+                if result.is_final:
+                    confidence = 1.0
+                else:
+                    confidence = result.stability
+
+                newCapture = TranscriptCapture(confidence, result.alternatives[0].transcript)
+                if result.is_final:
+                    newCapture.confidence = 1
+
+                if not capture:
+                    capture = newCapture
+                else:
+                    capture.add(newCapture)
+
+                if self._currentTranscriptKey is None:
+                    self._currentTranscriptKey = self.model.add( capture )
+                else:
+                    self.model.update( self._currentTranscriptKey, capture )
+                
+                if result.is_final:
+                    self._currentTranscriptKey = None
+
+    def transcribe(self):
+            while True:
+                singleRequest = RequestPackage(self._inputStream)
+                audio_generator = singleRequest.generator()
+
+                endRequestGuard = threading.Timer(50.0, stopGenerator, [singleRequest] )
+                endRequestGuard.start()
+
+                requests = (types.StreamingRecognizeRequest(audio_content=content)
+                            for content in audio_generator)
+
+                responses = self._client.streaming_recognize(self._streaming_config, requests)
+
+                self.updateTranscript(responses)
+                print('End request')
+
 
 def stopGenerator(stream):
     print("Timer went off")
     stream.closed = True
 
+def updateUI(textView, model):
+    textView.delete('1.0', 'end')
+    for item in model.lines:
+        for itemDetail in item.parts:
+            if itemDetail.confidence < 0.5:
+                tag = 'unstable'
+            else: 
+                tag = 'stable'
+            
+            textView.insert('end', itemDetail.text, tag)
+        textView.insert('end', '\n')
+
+    textView.after(50, updateUI, textView, model)
+
+class Transcript:
+    def __init__(self):
+        self.lines = []
+
+    def add(self, item):
+        self.lines.append(item)
+        return len(self.lines) - 1 
+    
+    def update(self, key, item):
+        if key >= len(self.lines):
+            return
+        else:
+            self.lines[key] = item
+
+class TranscriptCapture:
+    def __init__(self, confidence, text):
+        self.parts = [TranscriptItem(confidence, text)]
+    
+    def add(self, capture):
+        self.parts.extend(capture.parts)
+
+class TranscriptItem:
+    def __init__(self, confidence, text):
+        self.confidence = confidence
+        self.text = text
+        self.offset = 0
+
 def main():
+    uiRoot = tkinter.Tk()
+
+    textView = tkinter.Text(uiRoot, width = uiRoot.winfo_screenwidth(), height = uiRoot.winfo_screenheight(), font = ('Helvetica', 21))
+    textView.tag_config('unstable', foreground = 'gray')
+    textView.tag_config('stable', foreground = 'black')
+    textView.pack()
+
     language_code = 'nl-NL'  # a BCP-47 language tag
 
-    client = speech.SpeechClient()
-    config = types.RecognitionConfig(
-        encoding=enums.RecognitionConfig.AudioEncoding.LINEAR16,
-        sample_rate_hertz=RATE,
-        language_code=language_code)
-    streaming_config = types.StreamingRecognitionConfig(
-        config=config,
-        interim_results=True)
+    model = Transcript()
 
     with MicrophoneStream(RATE, CHUNK) as rawStream:
-        while True:
-            singleRequest = RequestPackage(rawStream)
-            audio_generator = singleRequest.generator()
+        service = GoogleCloudTranscriptionService(language_code, rawStream, model)
+        serviceThread = threading.Thread(target=service.transcribe, name='transcribe')
+        serviceThread.start()
 
-            endRequestGuard = threading.Timer(50.0, stopGenerator, [singleRequest] )
-            endRequestGuard.start()
+        textView.after(50, updateUI, textView, model)
 
-            requests = (types.StreamingRecognizeRequest(audio_content=content)
-                        for content in audio_generator)
-
-            responses = client.streaming_recognize(streaming_config, requests)
-
-            # Now, put the transcription responses to use.
-            present(responses)
-            print('End request')
+        uiRoot.mainloop()
 
 if __name__ == '__main__':
     main()
