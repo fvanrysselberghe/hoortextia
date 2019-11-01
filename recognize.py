@@ -30,6 +30,28 @@ def updateUI(textView, model):
     textView.after(50, updateUI, textView, model)
 
 
+class TranscriptionService():
+    def __init__(self):
+        self.service = None
+
+    def transcribe(self, language_code, model):
+        with MicrophoneStream(RATE, CHUNK) as rawStream:
+            self.service = GoogleCloudTranscriptionService(
+                language_code, rawStream, model, RATE)
+
+            self.service.transcribe()
+
+    def start(self, language_code, model):
+        # We don't want to block the UI by our continuous transcription process
+        thread = threading.Thread(target=self.transcribe, name='transcribe', args=[
+                                  language_code, model])
+        thread.start()
+
+    def stop(self):
+        if (self.service != None):
+            self.service.stopTranscription()
+
+
 def main():
     uiRoot = tkinter.Tk()
     uiRoot.configure(background="black")
@@ -39,27 +61,21 @@ def main():
     textView.tag_config('unstable', foreground='gray')
     textView.tag_config('stable', foreground='white')
 
+    service = TranscriptionService()
+
     stopButton = tkinter.Button(
-        uiRoot, text='stop', command=lambda: service.stopTranscription())
+        uiRoot, text='stop', command=lambda: service.stop())
     stopButton.pack(fill=tkinter.X)
 
     textView.pack()
 
     language_code = 'nl-NL'  # a BCP-47 language tag
-
     model = Transcript()
+    service.start(language_code, model)
 
-    with MicrophoneStream(RATE, CHUNK) as rawStream:
-        service = GoogleCloudTranscriptionService(
-            language_code, rawStream, model, RATE)
+    textView.after(50, updateUI, textView, model)
 
-        serviceThread = threading.Thread(
-            target=service.transcribe, name='transcribe')
-        serviceThread.start()
-
-        textView.after(50, updateUI, textView, model)
-
-        uiRoot.mainloop()
+    uiRoot.mainloop()
 
 
 if __name__ == '__main__':
