@@ -6,7 +6,7 @@ import sys
 import tkinter
 import threading
 from stream import MicrophoneStream
-from googletranscription import GoogleCloudTranscriptionService
+from google.googletranscription import TranscriptionEngine
 from transcript import Transcript
 
 # Audio recording parameters
@@ -36,7 +36,7 @@ class TranscriptionService():
 
     def transcribe(self, language_code, model):
         with MicrophoneStream(RATE, CHUNK) as rawStream:
-            self.service = GoogleCloudTranscriptionService(
+            self.service = TranscriptionEngine(
                 language_code, rawStream, model, RATE)
 
             self.service.transcribe()
