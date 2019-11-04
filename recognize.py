@@ -32,7 +32,7 @@ def updateUI(textView, model):
 
 class TranscriptionService():
     def __init__(self, language_code, model):
-        self.service = None
+        self.engine = None
 
         # We don't want to block the UI by our continuous transcription process
         self.thread = threading.Thread(target=self.transcribe, name='transcribe', args=[
@@ -40,17 +40,17 @@ class TranscriptionService():
 
     def transcribe(self, language_code, model):
         with MicrophoneStream(RATE, CHUNK) as rawStream:
-            self.service = TranscriptionEngine(
+            self.engine = TranscriptionEngine(
                 language_code, rawStream, model, RATE)
 
-            self.service.transcribe()
+            self.engine.transcribe()
 
     def start(self):
         self.thread.start()
 
     def stop(self):
-        if (self.service != None):
-            self.service.stopTranscription()
+        if (self.engine != None):
+            self.engine.stopTranscription()
 
         # Wait until the thread stops
         self.thread.join()
