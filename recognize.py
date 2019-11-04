@@ -69,6 +69,11 @@ def main():
     model = Transcript()
     service = TranscriptionService(language_code, model)
 
+    def close_window():
+        service.stop()
+        uiRoot.destroy()
+    uiRoot.protocol("WM_DELETE_WINDOW", close_window)
+
     stopButton = tkinter.Button(
         uiRoot, text='stop', command=lambda: service.stop())
     stopButton.pack(fill=tkinter.X)
