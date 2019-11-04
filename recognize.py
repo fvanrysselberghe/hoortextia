@@ -31,8 +31,12 @@ def updateUI(textView, model):
 
 
 class TranscriptionService():
-    def __init__(self):
+    def __init__(self, language_code, model):
         self.service = None
+
+        # We don't want to block the UI by our continuous transcription process
+        self.thread = threading.Thread(target=self.transcribe, name='transcribe', args=[
+            language_code, model])
 
     def transcribe(self, language_code, model):
         with MicrophoneStream(RATE, CHUNK) as rawStream:
@@ -41,15 +45,15 @@ class TranscriptionService():
 
             self.service.transcribe()
 
-    def start(self, language_code, model):
-        # We don't want to block the UI by our continuous transcription process
-        thread = threading.Thread(target=self.transcribe, name='transcribe', args=[
-                                  language_code, model])
-        thread.start()
+    def start(self):
+        self.thread.start()
 
     def stop(self):
         if (self.service != None):
             self.service.stopTranscription()
+
+        # Wait until the thread stops
+        self.thread.join()
 
 
 def main():
@@ -61,20 +65,18 @@ def main():
     textView.tag_config('unstable', foreground='gray')
     textView.tag_config('stable', foreground='white')
 
-    service = TranscriptionService()
+    language_code = 'nl-NL'  # a BCP-47 language tag
+    model = Transcript()
+    service = TranscriptionService(language_code, model)
 
     stopButton = tkinter.Button(
         uiRoot, text='stop', command=lambda: service.stop())
     stopButton.pack(fill=tkinter.X)
 
+    textView.after(50, updateUI, textView, model)
     textView.pack()
 
-    language_code = 'nl-NL'  # a BCP-47 language tag
-    model = Transcript()
-    service.start(language_code, model)
-
-    textView.after(50, updateUI, textView, model)
-
+    service.start()
     uiRoot.mainloop()
 
 
