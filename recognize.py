@@ -96,12 +96,12 @@ def main():
         uiRoot.destroy()
     uiRoot.protocol("WM_DELETE_WINDOW", close_window)
 
+    textView.after(50, updateUI, textView, model)
+    textView.pack()
+
     stopButton = tkinter.Button(uiRoot)
     buttonDecoration = Switch(stopButton, service)
     stopButton.pack(fill=tkinter.X)
-
-    textView.after(50, updateUI, textView, model)
-    textView.pack()
 
     uiRoot.mainloop()
 
