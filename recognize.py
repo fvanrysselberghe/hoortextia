@@ -33,10 +33,11 @@ def updateUI(textView, model):
 class TranscriptionService():
     def __init__(self, language_code, model):
         self.engine = None
+        self.language_code = language_code
+        self.model = model
 
         # We don't want to block the UI by our continuous transcription process
-        self.thread = threading.Thread(target=self.transcribe, name='transcribe', args=[
-            language_code, model])
+        self.thread = None
 
     def transcribe(self, language_code, model):
         with MicrophoneStream(RATE, CHUNK) as rawStream:
@@ -46,6 +47,8 @@ class TranscriptionService():
             self.engine.transcribe()
 
     def start(self):
+        self.thread = threading.Thread(target=self.transcribe, name='transcribe', args=[
+            self.language_code, self.model])
         self.thread.start()
 
     def stop(self):
@@ -54,6 +57,25 @@ class TranscriptionService():
 
         # Wait until the thread stops
         self.thread.join()
+
+
+class Switch():
+    def __init__(self, button, implementation):
+        self.button = button
+        self.on = False
+        self.button.configure(text='Start')
+        self.button.configure(command=self.switch)
+        self.implementation = implementation
+
+    def switch(self):
+        if (self.on):
+            self.implementation.stop()
+            self.on = False
+            self.button.configure(text='Start')
+        else:
+            self.implementation.start()
+            self.on = True
+            self.button.configure(text='Stop')
 
 
 def main():
@@ -74,14 +96,13 @@ def main():
         uiRoot.destroy()
     uiRoot.protocol("WM_DELETE_WINDOW", close_window)
 
-    stopButton = tkinter.Button(
-        uiRoot, text='stop', command=lambda: service.stop())
+    stopButton = tkinter.Button(uiRoot)
+    buttonDecoration = Switch(stopButton, service)
     stopButton.pack(fill=tkinter.X)
 
     textView.after(50, updateUI, textView, model)
     textView.pack()
 
-    service.start()
     uiRoot.mainloop()
 
 
